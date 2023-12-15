@@ -171,7 +171,7 @@ M.bundle = function (infile, outdir, opts)
         sym = sym
       })
     end):concat("\n"), "\n", [[
-        if (LUA_OK != (rc = luaL_loadbuffer(L, (const char *)data, data_len, "]], outluacfp, [[")))
+        if (0 != (rc = luaL_loadbuffer(L, (const char *)data, data_len, "]], outluacfp, [[")))
           goto err;
         lua_createtable(L, argc, 0);
         for (int i = 0; i < argc; i ++) {
@@ -180,7 +180,7 @@ M.bundle = function (infile, outdir, opts)
           lua_settable(L, -3);
         }
         lua_setglobal(L, "arg");
-        if (LUA_OK != (rc = lua_pcall(L, 0, 0, 0)))
+        if (0 != (rc = lua_pcall(L, 0, 0, 0)))
           goto err;
         goto end;
       err:
