@@ -109,7 +109,6 @@ M.bundle = function (infile, outdir, opts)
   opts = opts or {}
   opts.mods = vec.wrap(opts.mods)
   opts.env = vec.wrap(opts.env)
-  opts.env_compile = vec.wrap(opts.env_compile)
   opts.flags = vec.wrap(opts.flags)
   local ignores = gen.ivals(opts.ignores or {}):set()
   return err.pwrap(function (check)
@@ -144,7 +143,7 @@ M.bundle = function (infile, outdir, opts)
       #include "lua.h"
       #include "lualib.h"
       #include "lauxlib.h"
-    ]], opts.env_compile.n > 0 and [[
+    ]], opts.env.n > 0 and [[
       #include "stdlib.h"
     ]] or "", check(fs.readfile(outluahfp)), [[
       const char *reader (lua_State *L, void *data, size_t *sizep) {
@@ -156,7 +155,7 @@ M.bundle = function (infile, outdir, opts)
       return "int " .. sym .. "(lua_State *L);"
     end):concat("\n"), "\n", [[
       int main (int argc, char **argv) {
-    ]], gen.ivals(opts.env_compile):map(function (e)
+    ]], gen.ivals(opts.env):map(function (e)
       return string.format("setenv(%s, %s, 1);", str.quote(e[1]), str.quote(e[2]))
     end):concat(), "\n", [[
     ]], [[
@@ -202,7 +201,7 @@ M.bundle = function (infile, outdir, opts)
         args:append(fp)
       end)
     args:append("-o", outmainfp)
-    check(sys.execute({ env = opts.env }, args:unpack()))
+    check(sys.execute(args:unpack()))
   end)
 end
 
