@@ -1,4 +1,5 @@
 local err = require("santoku.err")
+local compat = require("santoku.compat")
 local vec = require("santoku.vector")
 local gen = require("santoku.gen")
 local str = require("santoku.string")
@@ -65,29 +66,25 @@ M.parsemodules = function (check, infile, modules, ignores, path, cpath)
     end)
 end
 
--- TODO: Create a 5.1 shim for
--- package.searchpath
+M.parseinitialmodules = function (check, infile, mods, ignores, path, cpath)
+  local modules = { c = {}, lua = {} }
+  gen.ivals(mods):each(function(mod)
+    M.parsemodule(check, mod, modules, ignores, path, cpath)
+  end)
+  M.parsemodules(check, infile, modules, ignores, path, cpath)
+  return modules
+end
+
 M.searchpaths = function (mod, path, cpath)
-  local fp0, err0 = package.searchpath(mod, path) -- luacheck: ignore
+  local fp0, err0 = compat.searchpath(mod, path) -- luacheck: ignore
   if fp0 then
     return true, fp0, "lua"
   end
-  local fp1, err1 = package.searchpath(mod, cpath) -- luacheck: ignore
+  local fp1, err1 = compat.searchpath(mod, cpath) -- luacheck: ignore
   if fp1 then
     return true, fp1, "c"
   end
   return false, err0, err1
-end
-
-M.parsemodules = function (infile, mods, ignores, path, cpath)
-  return err.pwrap(function (check)
-    local modules = { c = {}, lua = {} }
-    gen.ivals(mods):each(function(mod)
-      M.parsemodule(check, mod, modules, ignores, path, cpath)
-    end)
-    M.parsemodules(check, infile, modules, ignores, path, cpath)
-    return modules
-  end)
 end
 
 M.mergelua = function (modules, infile, mods)
@@ -115,7 +112,7 @@ M.bundle = function (infile, outdir, opts)
     opts.path = opts.path or ""
     opts.cpath = opts.cpath or ""
     opts.outprefix = opts.outprefix or fs.splitexts(fs.basename(infile)).name
-    local modules = check(M.parsemodules(infile, opts.mods, ignores, opts.path, opts.cpath))
+    local modules = M.parseinitialmodules(check, infile, opts.mods, ignores, opts.path, opts.cpath)
     local outluafp = fs.join(outdir, opts.outprefix .. ".lua")
     local outluadata = check(M.mergelua(modules, infile, opts.mods))
     check(fs.writefile(outluafp, outluadata))
