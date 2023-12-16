@@ -109,8 +109,8 @@ M.bundle = function (infile, outdir, opts)
   opts.flags = vec.wrap(opts.flags)
   local ignores = gen.ivals(opts.ignores or {}):set()
   return err.pwrap(function (check)
-    opts.path = opts.path or ""
-    opts.cpath = opts.cpath or ""
+    opts.path = opts.path or os.getenv("LUA_PATH")
+    opts.cpath = opts.cpath or os.getenv("LUA_CPATH")
     opts.outprefix = opts.outprefix or fs.splitexts(fs.basename(infile)).name
     local modules = M.parseinitialmodules(check, infile, opts.mods, ignores, opts.path, opts.cpath)
     local outluafp = fs.join(outdir, opts.outprefix .. ".lua")
@@ -143,9 +143,44 @@ M.bundle = function (infile, outdir, opts)
     ]], opts.env.n > 0 and [[
       #include "stdlib.h"
     ]] or "", check(fs.readfile(outluahfp)), [[
-      const char *reader (lua_State *L, void *data, size_t *sizep) {
-        *sizep = data_len;
-        return (const char *)data;
+      /* Source: https://github.com/lunarmodules/lua-compat-5.3/blob/a1735f6e6bd17588fcaf98720f0548c4caa23b34/c-api/compat-5.3.c */
+#define lua_getfield(L, i, k) (lua_getfield((L), (i), (k)), lua_type((L), -1))
+      int __lua_absindex (lua_State *L, int i) {
+        if (i < 0 && i > LUA_REGISTRYINDEX)
+          i += lua_gettop(L) + 1;
+        return i;
+      }
+      int __luaL_getsubtable (lua_State *L, int i, const char *name) {
+        int abs_i = __lua_absindex(L, i);
+        luaL_checkstack(L, 3, "not enough stack slots");
+        lua_pushstring(L, name);
+        lua_gettable(L, abs_i);
+        if (lua_istable(L, -1))
+          return 1;
+        lua_pop(L, 1);
+        lua_newtable(L);
+        lua_pushstring(L, name);
+        lua_pushvalue(L, -2);
+        lua_settable(L, abs_i);
+        return 0;
+      }
+      void __luaL_requiref (lua_State *L, const char *modname,
+                                       lua_CFunction openf, int glb) {
+        luaL_checkstack(L, 3, "not enough stack slots available");
+        __luaL_getsubtable(L, LUA_REGISTRYINDEX, "_LOADED");
+        if (lua_getfield(L, -1, modname) == LUA_TNIL) {
+          lua_pop(L, 1);
+          lua_pushcfunction(L, openf);
+          lua_pushstring(L, modname);
+          lua_call(L, 1, 1);
+          lua_pushvalue(L, -1);
+          lua_setfield(L, -3, modname);
+        }
+        if (glb) {
+          lua_pushvalue(L, -1);
+          lua_setglobal(L, modname);
+        }
+        lua_replace(L, -2);
       }
     ]], gen.pairs(modules.c):map(function (mod)
       local sym = "luaopen_" .. string.gsub(mod, "%.", "_")
@@ -163,7 +198,7 @@ M.bundle = function (infile, outdir, opts)
         int rc = 0;
     ]], gen.pairs(modules.c):map(function (mod)
       local sym = "luaopen_" .. string.gsub(mod, "%.", "_")
-      return str.interp("luaL_requiref(L, \"%mod\", %sym, 0);", {
+      return str.interp("__luaL_requiref(L, \"%mod\", %sym, 0);", {
         mod = mod,
         sym = sym
       })
@@ -197,6 +232,8 @@ M.bundle = function (infile, outdir, opts)
       :each(function (_, fp)
         args:append(fp)
       end)
+    io.stderr:write(args:concat(" ") .. "\n")
+    io.stderr:flush()
     args:append("-o", outmainfp)
     check(sys.execute(args:unpack()))
   end)
