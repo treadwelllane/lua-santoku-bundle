@@ -195,9 +195,6 @@ M.bundle = function (infile, outdir, opts)
         if (L == NULL)
           return 1;
         luaL_openlibs(L);
-    ]], (opts.debug == true) and [[
-      luaopen_debug(L);
-    ]] or "", [[
         int rc = 0;
     ]], gen.pairs(modules.c):map(function (mod)
       local sym = "luaopen_" .. string.gsub(mod, "%.", "_")
