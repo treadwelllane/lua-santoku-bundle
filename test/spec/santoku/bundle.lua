@@ -23,6 +23,7 @@ test("bundle", function ()
         local libname = str.stripprefix(fs.stripextension(libfile), "lib")
         check(bundle(infile, outdir, {
 
+          debug = true,
           flags = { "-I", incdir, "-L", libdir , "-l", libname, "-l", "m" }
         }))
         assert(check(fs.exists(fs.join(outdir, "test.lua"))))
