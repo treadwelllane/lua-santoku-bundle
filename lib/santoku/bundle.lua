@@ -218,7 +218,7 @@ M.bundle = function (infile, outdir, opts)
       err:
         fprintf(stderr, "%s\n", lua_tostring(L, -1));
       end:
-      ]], (opts.close == false) and [[
+      ]], (opts.close == true) and [[
         lua_close(L);
       ]] or "", [[
         return rc;
