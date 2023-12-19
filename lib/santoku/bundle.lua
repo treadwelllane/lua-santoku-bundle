@@ -140,9 +140,8 @@ M.bundle = function (infile, outdir, opts)
       #include "lua.h"
       #include "lualib.h"
       #include "lauxlib.h"
-    ]], opts.env.n > 0 and [[
-      #include "stdlib.h"
-    ]] or "", check(fs.readfile(outluahfp)), [[
+      #include <stdlib.h>
+    ]], check(fs.readfile(outluahfp)), [[
       /* Source: https://github.com/lunarmodules/lua-compat-5.3/blob/a1735f6e6bd17588fcaf98720f0548c4caa23b34/c-api/compat-5.3.c */
 #define lua_getfield(L, i, k) (lua_getfield((L), (i), (k)), lua_type((L), -1))
       int __lua_absindex (lua_State *L, int i) {
@@ -186,16 +185,24 @@ M.bundle = function (infile, outdir, opts)
       local sym = "luaopen_" .. string.gsub(mod, "%.", "_")
       return "int " .. sym .. "(lua_State *L);"
     end):concat("\n"), "\n", [[
+      lua_State *L;
+      int rc = 0;
+      void exit_handler (void) {
+      ]], (opts.close == true) and [[
+        lua_close(L);
+      ]] or "", [[
+      }
       int main (int argc, char **argv) {
     ]], gen.ivals(opts.env):map(function (e)
       return string.format("setenv(%s, %s, 1);", str.quote(e[1]), str.quote(e[2]))
     end):concat(), "\n", [[
     ]], [[
-        lua_State *L = luaL_newstate();
-        if (L == NULL)
-          return 1;
+        L = luaL_newstate();
+        if (L == NULL) {
+          rc = 1;
+          return rc;
+        }
         luaL_openlibs(L);
-        int rc = 0;
     ]], gen.pairs(modules.c):map(function (mod)
       local sym = "luaopen_" .. string.gsub(mod, "%.", "_")
       return str.interp("__luaL_requiref(L, \"%mod\", %sym, 0);", {
@@ -203,7 +210,7 @@ M.bundle = function (infile, outdir, opts)
         sym = sym
       })
     end):concat("\n"), "\n", [[
-        if (0 != (rc = luaL_loadbuffer(L, (const char *)data, data_len, "]], outluacfp, [[")))
+        if (0 != (rc = luaL_loadbuffer(L, (const char *)data, data_len, "bundle")))
           goto err;
         lua_createtable(L, argc, 0);
         for (int i = 0; i < argc; i ++) {
@@ -216,11 +223,13 @@ M.bundle = function (infile, outdir, opts)
           goto err;
         goto end;
       err:
+        rc = 1;
         fprintf(stderr, "%s\n", lua_tostring(L, -1));
       end:
-      ]], (opts.close == true) and [[
-        lua_close(L);
-      ]] or "", [[
+        if (atexit(exit_handler)) {
+          fprintf(stderr, "Error registering exit handler\n");
+          return rc || 1;
+        }
         return rc;
       }
     ]]})))
