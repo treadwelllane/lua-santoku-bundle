@@ -1,4 +1,3 @@
-local assert = require("luassert")
 local test = require("santoku.test")
 local sys = require("santoku.system")
 local str = require("santoku.string")
