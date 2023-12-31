@@ -115,6 +115,7 @@ M.bundle = function (infile, outdir, opts)
     local modules = M.parseinitialmodules(check, infile, opts.mods, ignores, opts.path, opts.cpath)
     local outluafp = fs.join(outdir, opts.outprefix .. ".lua")
     local outluadata = check(M.mergelua(modules, infile, opts.mods))
+    check(fs.mkdirp(fs.dirname(outluafp)))
     check(fs.writefile(outluafp, outluadata))
     local outluacfp
     if opts.luac then
@@ -143,7 +144,7 @@ M.bundle = function (infile, outdir, opts)
     ]], opts.env.n > 0 and [[
       #include "stdlib.h"
     ]] or "", check(fs.readfile(outluahfp)), [[
-      /* Source: https://github.com/lunarmodules/lua-compat-5.3/blob/a1735f6e6bd17588fcaf98720f0548c4caa23b34/c-api/compat-5.3.c */
+      /* Source: https://github.com/lunarmodules/lua-compat-5.3 */
 #define lua_getfield(L, i, k) (lua_getfield((L), (i), (k)), lua_type((L), -1))
       int __lua_absindex (lua_State *L, int i) {
         if (i < 0 && i > LUA_REGISTRYINDEX)
