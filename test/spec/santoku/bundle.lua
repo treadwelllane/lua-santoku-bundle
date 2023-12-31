@@ -11,9 +11,9 @@ test("bundle", function ()
   test("bundle", function ()
 
     test("should produce a standalone executable from a lua file", function ()
-      local infile = "res/bundle/test.lua"
-      local outdir = "res/bundle/test"
-      assert(err.pwrap(function (check)
+      local infile = "test/res/bundle/test.lua"
+      local outdir = "test/res/bundle/test"
+      err.check(err.pwrap(function (check)
         check(fs.mkdirp(outdir))
         fs.files(outdir):map(check):map(fs.rm):each(check)
         local incdir = check(sys.sh("luarocks", "config", "variables.LUA_INCDIR")):map(check):concat()
