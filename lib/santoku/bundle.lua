@@ -188,7 +188,7 @@ M.bundle = function (infile, outdir, opts)
       return "int " .. sym .. "(lua_State *L);"
     end):concat("\n"), "\n", (opts.close == nil) and [[
       lua_State *L = NULL;
-      void __atexit (void) {
+      void __tk_bundle_atexit (void) {
         if (L != NULL)
           lua_close(L);
       }
@@ -201,7 +201,7 @@ M.bundle = function (infile, outdir, opts)
         L = luaL_newstate();
         int rc = 0;
     ]], (opts.close == nil) and [[
-        if (0 != (rc = atexit(__atexit)))
+        if (0 != (rc = atexit(__tk_bundle_atexit)))
           goto err;
     ]] or "", [[
         if (L == NULL)
