@@ -201,13 +201,12 @@ M.bundle = function (infile, outdir, opts)
         L = luaL_newstate();
         int rc = 0;
     ]], (opts.close == nil) and [[
-        if (0 != (rc = atexit(__onexit)))
+        if (0 != (rc = atexit(__atexit)))
           goto err;
     ]] or "", [[
         if (L == NULL)
           return 1;
         luaL_openlibs(L);
-        int rc = 0;
     ]], gen.pairs(modules.c):map(function (mod)
       local sym = "luaopen_" .. string.gsub(mod, "%.", "_")
       return str.interp("__luaL_requiref(L, \"%mod\", %sym, 0);", {
