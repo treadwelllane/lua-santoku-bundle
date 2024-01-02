@@ -141,7 +141,7 @@ M.bundle = function (infile, outdir, opts)
       #include "lua.h"
       #include "lualib.h"
       #include "lauxlib.h"
-    ]], opts.env.n > 0 and [[
+    ]], (opts.env.n > 0 or opts.close == nil) and [[
       #include "stdlib.h"
     ]] or "", check(fs.readfile(outluahfp)), [[
       /* Source: https://github.com/lunarmodules/lua-compat-5.3 */
@@ -186,13 +186,24 @@ M.bundle = function (infile, outdir, opts)
     ]], gen.pairs(modules.c):map(function (mod)
       local sym = "luaopen_" .. string.gsub(mod, "%.", "_")
       return "int " .. sym .. "(lua_State *L);"
-    end):concat("\n"), "\n", [[
+    end):concat("\n"), "\n", (opts.close == nil) and [[
+      lua_State *L = NULL;
+      void __atexit (void) {
+        if (L != NULL)
+          lua_close(L);
+      }
+    ]] or "", [[
       int main (int argc, char **argv) {
     ]], gen.ivals(opts.env):map(function (e)
       return string.format("setenv(%s, %s, 1);", str.quote(e[1]), str.quote(e[2]))
     end):concat(), "\n", [[
     ]], [[
-        lua_State *L = luaL_newstate();
+        L = luaL_newstate();
+        int rc = 0;
+    ]], (opts.close == nil) and [[
+        if (0 != (rc = atexit(__onexit)))
+          goto err;
+    ]] or "", [[
         if (L == NULL)
           return 1;
         luaL_openlibs(L);
