@@ -1,4 +1,4 @@
-local err = require("santoku.err")
+local check = require("santoku.check")
 local compat = require("santoku.compat")
 local vec = require("santoku.vector")
 local gen = require("santoku.gen")
@@ -88,7 +88,7 @@ M.searchpaths = function (mod, path, cpath)
 end
 
 M.mergelua = function (modules, infile, mods)
-  return err.pwrap(function (check)
+  return check:wrap(function (check)
     local ret = vec()
     gen.pairs(modules.lua):each(function (mod, fp)
       local data = check(fs.readfile(fp))
@@ -108,7 +108,7 @@ M.bundle = function (infile, outdir, opts)
   opts.env = vec.wrap(opts.env)
   opts.flags = vec.wrap(opts.flags)
   local ignores = gen.ivals(opts.ignores or {}):set()
-  return err.pwrap(function (check)
+  return check:wrap(function (check)
     opts.path = opts.path or os.getenv("LUA_PATH")
     opts.cpath = opts.cpath or os.getenv("LUA_CPATH")
     opts.outprefix = opts.outprefix or fs.splitexts(fs.basename(infile)).name

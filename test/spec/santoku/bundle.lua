@@ -4,7 +4,7 @@ local str = require("santoku.string")
 
 local bundle = require("santoku.bundle")
 local fs = require("santoku.fs")
-local err = require("santoku.err")
+local check = require("santoku.check")
 
 test("bundle", function ()
 
@@ -13,7 +13,7 @@ test("bundle", function ()
     test("should produce a standalone executable from a lua file", function ()
       local infile = "test/res/bundle/test.lua"
       local outdir = "test/res/bundle/test"
-      err.check(err.pwrap(function (check)
+      check(check:wrap(function (check)
         check(fs.mkdirp(outdir))
         fs.files(outdir):map(check):map(fs.rm):each(check)
         local incdir = check(sys.sh("luarocks", "config", "variables.LUA_INCDIR")):map(check):concat()
