@@ -1,21 +1,20 @@
 local env = {
 
   name = "santoku-bundle",
-  version = "0.0.20-1",
+  version = "0.0.22-1",
   variable_prefix = "TK_BUNDLE",
   license = "MIT",
   public = true,
 
   dependencies = {
     "lua >= 5.1",
-    "santoku >= 0.0.162-1",
-    "santoku-system >= 0.0.12-1",
-    "santoku-fs >= 0.0.16-1"
+    "santoku >= 0.0.177-1",
+    "santoku-system >= 0.0.15-1",
+    "santoku-fs >= 0.0.20-1"
   },
 
   test = {
     dependencies = {
-      "santoku-test >= 0.0.7-1",
       "luacov >= 0.15.0-1",
     }
   },
