@@ -1,38 +1,52 @@
 local test = require("santoku.test")
-local sys = require("santoku.system")
-local str = require("santoku.string")
 
 local bundle = require("santoku.bundle")
+
+local iter = require("santoku.iter")
+local first = iter.first
+local each = iter.each
+
+local sys = require("santoku.system")
+local sh = sys.sh
+
+local str = require("santoku.string")
+local stripprefix = str.stripprefix
+
 local fs = require("santoku.fs")
-local check = require("santoku.check")
+local exists = fs.exists
+local files = fs.files
+local join = fs.join
+local mkdirp = fs.mkdirp
+local rm = fs.rm
+local stripextension = fs.stripextension
 
 test("bundle", function ()
 
-  test("bundle", function ()
+  local infile = "test/res/bundle/test.lua"
+  local outdir = "test/res/bundle/test"
 
-    test("should produce a standalone executable from a lua file", function ()
-      local infile = "test/res/bundle/test.lua"
-      local outdir = "test/res/bundle/test"
-      check(check:wrap(function (check)
-        check(fs.mkdirp(outdir))
-        fs.files(outdir):map(check):map(fs.rm):each(check)
-        local incdir = check(sys.sh("luarocks", "config", "variables.LUA_INCDIR")):map(check):concat()
-        local libdir = check(sys.sh("luarocks", "config", "variables.LUA_LIBDIR")):map(check):concat()
-        local libfile = check(sys.sh("luarocks", "config", "variables.LUA_LIBDIR_FILE")):map(check):concat()
-        local libname = str.stripprefix(fs.stripextension(libfile), "lib")
-        check(bundle(infile, outdir, {
-          -- luac = "luajit -b %input %output",
-          debug = true,
-          flags = { "-I", incdir, "-L", libdir , "-l", libname, "-l", "m" }
-        }))
-        assert(check(fs.exists(fs.join(outdir, "test.lua"))))
-        -- assert(check(fs.exists(fs.join(outdir, "test.luac"))))
-        assert(check(fs.exists(fs.join(outdir, "test.h"))))
-        assert(check(fs.exists(fs.join(outdir, "test.c"))))
-        assert(check(fs.exists(fs.join(outdir, "test"))))
-      end))
-    end)
+  mkdirp(outdir, true)
 
-  end)
+  each(function (fp)
+    return rm(fp)
+  end, files(outdir))
+
+  local incdir = first(sh({ "luarocks", "config", "variables.LUA_INCDIR" }))
+  local libdir = first(sh({ "luarocks", "config", "variables.LUA_LIBDIR" }))
+  local libfile = first(sh({ "luarocks", "config", "variables.LUA_LIBDIR_FILE" }))
+
+  local libname = stripprefix(stripextension(libfile), "lib")
+
+  bundle(infile, outdir, {
+    -- luac = "luajit -b %input %output",
+    debug = true,
+    flags = { "-I", incdir, "-L", libdir , "-l", libname, "-l", "m" }
+  })
+
+  assert(exists(join(outdir, "test.lua")))
+  -- assert(exists(join(outdir, "test.luac")))
+  assert(exists(join(outdir, "test.h")))
+  assert(exists(join(outdir, "test.c")))
+  assert(exists(join(outdir, "test")))
 
 end)
