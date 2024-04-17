@@ -146,6 +146,7 @@ local function bundle (infile, outdir, opts)
   local outluafp = join(outdir, opts.outprefix .. ".lua")
   local outluadata = mergelua(modules, infile, opts.mods)
 
+  mkdirp(outdir)
   mkdirp(dirname(outluafp))
   writefile(outluafp, outluadata)
 
