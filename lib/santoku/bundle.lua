@@ -2,14 +2,14 @@ local err = require("santoku.error")
 local assert = err.assert
 
 local str = require("santoku.string")
-local smatches = str.match
+local smatches = str.matches
 local squote = str.quote
-local ssplits = str.split
+local ssplits = str.splits
 local sinterp = str.interp
-local smatch = string.match
-local gsub = string.gsub
-local sformat = string.format
-local ssub = string.sub
+local smatch = str.match
+local gsub = str.gsub
+local sformat = str.format
+local ssub = str.sub
 
 local iter = require("santoku.iter")
 local pairs = iter.pairs
