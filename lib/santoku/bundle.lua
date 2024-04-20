@@ -34,8 +34,8 @@ local sys = require("santoku.system")
 local execute = sys.execute
 
 local fs = require("santoku.fs")
-local mkdirp = fs.mkdirp
 local lines = fs.lines
+local mkdirp = fs.mkdirp
 local readfile = fs.readfile
 local writefile = fs.writefile
 local basename = fs.basename
@@ -82,9 +82,9 @@ end
 local require_pat = "require%(?[^%S\n]*[\"']([^\"']*)['\"][^%S\n]*%)?"
 
 parsemodules = function (infile, modules, ignores, path, cpath)
-  for chunk, ls, le in lines(infile) do
-    if not first(smatches(chunk, "^%s*%-%-", false, ls, le)) then
-      local mod = smatch(chunk, require_pat, ls)
+  for line in lines(infile) do
+    if not first(smatches(line, "^%s*%-%-", false)) then
+      local mod = smatch(line, require_pat)
       if mod then
         parsemodule(mod, modules, ignores, path, cpath)
       end
