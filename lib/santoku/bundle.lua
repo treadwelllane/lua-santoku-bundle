@@ -138,7 +138,7 @@ local function bundle (infile, outdir, opts)
   end
 
   opts.path = opts.path or var("LUA_PATH", nil)
-  opts.cpath = opts.cpath or var("LUA_CPATH", nil)
+  opts.cpath = (opts.pure and "") or (opts.cpath or var("LUA_CPATH", nil))
   opts.outprefix = opts.outprefix or stripextensions(basename(infile))
 
   local modules = parseinitialmodules(infile, opts.mods, opts.ignores, opts.path, opts.cpath)
@@ -149,6 +149,10 @@ local function bundle (infile, outdir, opts)
   mkdirp(outdir)
   mkdirp(dirname(outluafp))
   writefile(outluafp, outluadata)
+
+  if opts.pure then
+    return
+  end
 
   local outluacfp
 
