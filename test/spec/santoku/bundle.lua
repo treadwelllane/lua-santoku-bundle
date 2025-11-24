@@ -1,41 +1,26 @@
 local test = require("santoku.test")
-
 local bundle = require("santoku.bundle")
-
 local iter = require("santoku.iter")
-local first = iter.first
-local each = iter.each
-
 local sys = require("santoku.system")
-local sh = sys.sh
-
 local str = require("santoku.string")
-local stripprefix = str.stripprefix
-
 local fs = require("santoku.fs")
-local exists = fs.exists
-local files = fs.files
-local join = fs.join
-local mkdirp = fs.mkdirp
-local rm = fs.rm
-local stripextension = fs.stripextension
 
 test("bundle", function ()
 
   local infile = "test/res/bundle/test.lua"
   local outdir = "test/res/bundle/test"
 
-  mkdirp(outdir, true)
+  fs.mkdirp(outdir, true)
 
-  each(function (fp)
-    return rm(fp)
-  end, files(outdir))
+  iter.each(function (fp)
+    return fs.rm(fp)
+  end, fs.files(outdir))
 
-  local incdir = first(sh({ "luarocks", "config", "variables.LUA_INCDIR" }))
-  local libdir = first(sh({ "luarocks", "config", "variables.LUA_LIBDIR" }))
-  local libfile = first(sh({ "luarocks", "config", "variables.LUA_LIBDIR_FILE" }))
+  local incdir = iter.first(sys.sh({ "luarocks", "config", "variables.LUA_INCDIR" }))
+  local libdir = iter.first(sys.sh({ "luarocks", "config", "variables.LUA_LIBDIR" }))
+  local libfile = iter.first(sys.sh({ "luarocks", "config", "variables.LUA_LIBDIR_FILE" }))
 
-  local libname = stripprefix(stripextension(libfile), "lib")
+  local libname = str.stripprefix(fs.stripextension(libfile), "lib")
 
   bundle(infile, outdir, {
     -- luac = "luajit -b %input %output",
@@ -43,10 +28,9 @@ test("bundle", function ()
     flags = { "-I", incdir, "-L", libdir , "-l", libname, "-l", "m" }
   })
 
-  assert(exists(join(outdir, "test.lua")))
-  -- assert(exists(join(outdir, "test.luac")))
-  assert(exists(join(outdir, "test.h")))
-  assert(exists(join(outdir, "test.c")))
-  assert(exists(join(outdir, "test")))
+  assert(fs.exists(fs.join(outdir, "test.lua")))
+  -- assert(fs.exists(fs.join(outdir, "test.luac")))
+  assert(fs.exists(fs.join(outdir, "test.c")))
+  assert(fs.exists(fs.join(outdir, "test")))
 
 end)

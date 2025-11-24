@@ -1,60 +1,37 @@
 local err = require("santoku.error")
-local assert = err.assert
-
+local lpeg = require("lpeg")
 local str = require("santoku.string")
-local smatches = str.matches
-local squote = str.quote
-local ssplits = str.splits
-local sinterp = str.interp
-local smatch = str.match
-local gsub = str.gsub
-local sformat = str.format
-local ssub = str.sub
-
 local iter = require("santoku.iter")
-local pairs = iter.pairs
-local intersperse = iter.intersperse
-local flatten = iter.flatten
-local first = iter.first
-local ivals = iter.ivals
-local vals = iter.vals
-local collect = iter.collect
-local map = iter.map
-
 local validate = require("santoku.validate")
-local isstring = validate.isstring
-local hasindex = validate.hasindex
-
 local arr = require("santoku.array")
-local push = arr.push
-local concat = arr.concat
-local extend = arr.extend
-
 local sys = require("santoku.system")
-local execute = sys.execute
-
+local fun = require("santoku.functional")
 local fs = require("santoku.fs")
-local lines = fs.lines
-local mkdirp = fs.mkdirp
-local readfile = fs.readfile
-local writefile = fs.writefile
-local basename = fs.basename
-local dirname = fs.dirname
-local stripextensions = fs.stripextensions
-local join = fs.join
-
 local env = require("santoku.env")
-local searchpath = env.searchpath
-local var = env.var
+local mch = require("santoku.mustache")
+
+local P, R, S, C, Ct, Cmt = lpeg.P, lpeg.R, lpeg.S, lpeg.C, lpeg.Ct, lpeg.Cmt
+
+local function build_long_bracket ()
+  return Cmt(P"[" * C(P"="^0) * P"[", function(s, pos, level)
+    local close_pattern = "]" .. level .. "]"
+    local close_start, close_end = s:find(close_pattern, pos, true)
+    if close_start then
+      local content = s:sub(pos, close_start - 1)
+      return close_end + 1, content
+    end
+    return nil
+  end)
+end
 
 local parsemodules
 
 local function searchpaths (mod, path, cpath)
-  local fp0, err1 = searchpath(mod, path) -- luacheck: ignore
+  local fp0, err1 = env.searchpath(mod, path)
   if fp0 then
     return fp0, "lua"
   end
-  local fp1, err2 = searchpath(mod, cpath) -- luacheck: ignore
+  local fp1, err2 = env.searchpath(mod, cpath)
   if fp1 then
     return fp1, "c"
   end
@@ -79,13 +56,36 @@ local function parsemodule (mod, modules, ignores, path, cpath)
   end
 end
 
-local require_pat = "require%(?[^%S\n]*[\"']([^\"']*)['\"][^%S\n]*%)?"
+local function build_long_bracket_skip()
+  return Cmt(P"[" * C(P"="^0) * P"[", function(s, pos, level)
+    local close_pattern = "]" .. level .. "]"
+    local close_start, close_end = s:find(close_pattern, pos, true)
+    if close_start then
+      return close_end + 1
+    end
+    return nil
+  end)
+end
+
+local ws = S" \t\n\r"^0
+local long_bracket_cap = build_long_bracket()
+local short_string_cap = P'"' * C((P'\\' * 1 + (1 - S'"\n'))^0) * P'"' + P"'" * C((P'\\' * 1 + (1 - S"'\n"))^0) * P"'"
+local string_cap = long_bracket_cap + short_string_cap
+local long_bracket_skip = build_long_bracket_skip()
+local short_string_skip = P'"' * (P'\\' * 1 + (1 - S'"\n'))^0 * P'"' + P"'" * (P'\\' * 1 + (1 - S"'\n"))^0 * P"'"
+local string_skip = long_bracket_skip + short_string_skip
+local comment = P"--" * long_bracket_skip + P"--" * (1 - P"\n")^0
+local require_kw = P"require" * -(R("az", "AZ", "09") + P"_")
+local require_call = require_kw * ws * ((P"(" * ws * string_cap * ws * P")") + string_cap) / fun.id
+local require_parser = Ct((require_call + comment + string_skip + 1)^0)
 
 parsemodules = function (infile, modules, ignores, path, cpath)
-  for line in lines(infile) do
-    if not first(smatches(line, "^%s*%-%-", false)) then
-      local mod = smatch(line, require_pat)
-      if mod then
+  local content = fs.readfile(infile)
+  local matches = require_parser:match(content)
+
+  if matches then
+    for _, mod in ipairs(matches) do
+      if type(mod) == "string" and #mod > 0 then
         parsemodule(mod, modules, ignores, path, cpath)
       end
     end
@@ -94,7 +94,7 @@ end
 
 local function parseinitialmodules (infile, mods, ignores, path, cpath)
   local modules = { c = {}, lua = {} }
-  for mod in ivals(mods) do
+  for mod in iter.ivals(mods) do
     parsemodule(mod, modules, ignores, path, cpath)
   end
   parsemodules(infile, modules, ignores, path, cpath)
@@ -103,52 +103,52 @@ end
 
 local function mergelua (modules, infile, mods)
   local ret = {}
-  for mod, fp in pairs(modules.lua) do
-    local data = readfile(fp)
-    push(ret, "package.preload[\"", mod, "\"] = function ()\n\n", data, "\nend\n")
+  for mod, fp in iter.pairs(modules.lua) do
+    local data = fs.readfile(fp)
+    arr.push(ret, "package.preload[\"", mod, "\"] = function ()\n\n", data, "\nend\n")
   end
-  for mod in ivals(mods) do
-    push(ret, "require(\"", mod, "\")\n")
+  for mod in iter.ivals(mods) do
+    arr.push(ret, "require(\"", mod, "\")\n")
   end
-  push(ret, "\n", readfile(infile))
-  return concat(ret)
+  arr.push(ret, "\n", fs.readfile(infile))
+  return arr.concat(ret)
 end
 
 local function write_deps (modules, infile, outfile)
   local depsfile = outfile .. ".d"
   local out = { outfile, ": " }
-  extend(out, collect(intersperse(" ", flatten(map(vals, vals(modules))))))
-  push(out, "\n", depsfile, ": ", infile)
-  writefile(depsfile, concat(out))
+  arr.extend(out, iter.collect(iter.intersperse(" ", iter.flatten(iter.map(iter.vals, iter.vals(modules))))))
+  arr.push(out, "\n", depsfile, ": ", infile)
+  fs.writefile(depsfile, arr.concat(out))
 end
 
 local function bundle (infile, outdir, opts)
 
-  assert(isstring(infile))
-  assert(isstring(outdir))
-  assert(hasindex(opts))
+  err.assert(validate.isstring(infile))
+  err.assert(validate.isstring(outdir))
+  err.assert(validate.hasindex(opts))
 
   opts.mods = opts.mods or {}
   opts.env = opts.env or {}
   opts.flags = opts.flags or {}
   opts.ignores = opts.ignores or {}
 
-  for k in ivals(opts.ignores) do
+  for k in iter.ivals(opts.ignores) do
     opts.ignores[k] = true
   end
 
-  opts.path = opts.path or var("LUA_PATH", nil)
-  opts.cpath = opts.cpath or var("LUA_CPATH", nil)
-  opts.outprefix = opts.outprefix or stripextensions(basename(infile))
+  opts.path = opts.path or env.var("LUA_PATH", nil)
+  opts.cpath = opts.cpath or env.var("LUA_CPATH", nil)
+  opts.outprefix = opts.outprefix or fs.stripextensions(fs.basename(infile))
 
   local modules = parseinitialmodules(infile, opts.mods, opts.ignores, opts.path, opts.cpath)
 
-  local outluafp = join(outdir, opts.outprefix .. ".lua")
+  local outluafp = fs.join(outdir, opts.outprefix .. ".lua")
   local outluadata = mergelua(modules, infile, opts.mods)
 
-  mkdirp(outdir)
-  mkdirp(dirname(outluafp))
-  writefile(outluafp, outluadata)
+  fs.mkdirp(outdir)
+  fs.mkdirp(fs.dirname(outluafp))
+  fs.writefile(outluafp, outluadata)
 
   local outluacfp
 
@@ -156,34 +156,85 @@ local function bundle (infile, outdir, opts)
     if opts.luac == true then
       opts.luac = "luac -s -o %output %input"
     end
-    outluacfp = join(outdir, opts.outprefix .. ".luac")
-    opts.luac = sinterp(opts.luac, { input = outluafp, output = outluacfp })
-    execute(collect(map(ssub, ssplits(opts.luac, "%s+"))))
+    outluacfp = fs.join(outdir, opts.outprefix .. ".luac")
+    opts.luac = str.interp(opts.luac, { input = outluafp, output = outluacfp })
+    sys.execute(iter.collect(iter.map(string.sub, str.splits(opts.luac, "%s+"))))
   else
     outluacfp = outluafp
   end
 
-  opts.xxd = opts.xxd or "xxd -i -n data"
+  local bytecode = fs.readfile(outluacfp)
+  local bytecode_b64 = str.to_base64(bytecode)
 
-  local outluahfp = join(outdir, opts.outprefix .. ".h")
-  execute(push(collect(map(ssub, ssplits(opts.xxd, "%s+"))), outluacfp, outluahfp))
-
-  local outcfp = join(outdir, opts.outprefix .. ".c")
-  local outmainfp = join(outdir, opts.outprefix)
+  local outcfp = fs.join(outdir, opts.outprefix .. ".c")
+  local outmainfp = fs.join(outdir, opts.outprefix)
 
   if opts.deps then
     write_deps(modules, infile, opts.depstarget or outmainfp)
   end
 
-  writefile(outcfp, concat({[[
+  local c_modules = {}
+  for mod in iter.pairs(modules.c) do
+    local sym = "luaopen_" .. str.gsub(mod, "%.", "_")
+    arr.push(c_modules, { symbol = sym, module = mod })
+  end
+
+  local env_vars = {}
+  for e in iter.ivals(opts.env) do
+    arr.push(env_vars, { name = str.quote(e[1]), value = str.quote(e[2]) })
+  end
+
+  local c_code = mch([[
     #include "lua.h"
     #include "lualib.h"
     #include "lauxlib.h"
-  ]], (#opts.env > 0 or opts.close == nil) and [[
     #include "stdlib.h"
-  ]] or "", readfile(outluahfp), [[
+    #include "string.h"
+
+    /* Base64 decoder */
+    static unsigned char base64_decode_char(char c) {
+      if (c >= 'A' && c <= 'Z') return c - 'A';
+      if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+      if (c >= '0' && c <= '9') return c - '0' + 52;
+      if (c == '+') return 62;
+      if (c == '/') return 63;
+      return 0;
+    }
+
+    static size_t base64_decode(const char *input, size_t input_len, unsigned char **output) {
+      size_t output_len = (input_len * 3) / 4;
+      size_t padding = 0;
+
+      if (input_len >= 2) {
+        if (input[input_len - 1] == '=') padding++;
+        if (input[input_len - 2] == '=') padding++;
+      }
+      output_len -= padding;
+
+      *output = malloc(output_len);
+      if (!*output) return 0;
+
+      size_t j = 0;
+      unsigned char buf[4];
+      for (size_t i = 0; i < input_len; i += 4) {
+        buf[0] = base64_decode_char(input[i]);
+        buf[1] = base64_decode_char(input[i + 1]);
+        buf[2] = input[i + 2] == '=' ? 0 : base64_decode_char(input[i + 2]);
+        buf[3] = input[i + 3] == '=' ? 0 : base64_decode_char(input[i + 3]);
+
+        (*output)[j++] = (buf[0] << 2) | (buf[1] >> 4);
+        if (j < output_len) (*output)[j++] = (buf[1] << 4) | (buf[2] >> 2);
+        if (j < output_len) (*output)[j++] = (buf[2] << 6) | buf[3];
+      }
+
+      return output_len;
+    }
+
+    /* Embedded base64-encoded bytecode */
+    static const char *data_base64 = {{{bytecode_b64}}};
+
     /* Source: https://github.com/lunarmodules/lua-compat-5.3 */
-#define lua_getfield(L, i, k) (lua_getfield((L), (i), (k)), lua_type((L), -1))
+    #define lua_getfield(L, i, k) (lua_getfield((L), (i), (k)), lua_type((L), -1))
     int __lua_absindex (lua_State *L, int i) {
       if (i < 0 && i > LUA_REGISTRYINDEX)
         i += lua_gettop(L) + 1;
@@ -221,37 +272,45 @@ local function bundle (infile, outdir, opts)
       }
       lua_replace(L, -2);
     }
-  ]], concat(collect(map(function (mod)
-    local sym = "luaopen_" .. gsub(mod, "%.", "_")
-    return "int " .. sym .. "(lua_State *L);"
-  end, pairs(modules.c))), "\n"), "\n", (opts.close == nil) and [[
+
+    {{#c_modules}}
+    int {{{symbol}}}(lua_State *L);
+    {{/c_modules}}
+
+    {{#auto_close}}
     lua_State *L = NULL;
     void __tk_bundle_atexit (void) {
       if (L != NULL)
         lua_close(L);
     }
-  ]] or "", [[
+    {{/auto_close}}
+
     int main (int argc, char **argv) {
-  ]], concat(collect(map(function (e)
-    return sformat("setenv(%s, %s, 1);", squote(e[1]), squote(e[2]))
-  end, ivals(opts.env)))), "\n", [[
-  ]], [[
+    {{#env_vars}}
+      setenv({{{name}}}, {{{value}}}, 1);
+    {{/env_vars}}
       L = luaL_newstate();
       int rc = 0;
-  ]], (opts.close == nil) and [[
+      unsigned char *data = NULL;
+      size_t data_len = 0;
+    {{#auto_close}}
       if (0 != (rc = atexit(__tk_bundle_atexit)))
         goto err;
-  ]] or "", [[
+    {{/auto_close}}
       if (L == NULL)
         return 1;
+
+      /* Decode base64 bytecode */
+      data_len = base64_decode(data_base64, strlen(data_base64), &data);
+      if (data_len == 0 || data == NULL) {
+        fprintf(stderr, "Failed to decode bytecode\n");
+        return 1;
+      }
+
       luaL_openlibs(L);
-  ]], concat(collect(map(function (mod)
-    local sym = "luaopen_" .. gsub(mod, "%.", "_")
-    return sinterp("__luaL_requiref(L, \"%mod\", %sym, 0);", {
-      mod = mod,
-      sym = sym
-    })
-  end, pairs(modules.c))), "\n"), "\n", [[
+    {{#c_modules}}
+      __luaL_requiref(L, "{{{module}}}", {{{symbol}}}, 0);
+    {{/c_modules}}
       if (0 != (rc = luaL_loadbuffer(L, (const char *)data, data_len, "bundle")))
         goto err;
       lua_createtable(L, argc, 0);
@@ -268,22 +327,32 @@ local function bundle (infile, outdir, opts)
       rc = 1;
       fprintf(stderr, "%s\n", lua_tostring(L, -1));
     end:
-    ]], (opts.close == true) and [[
+      if (data != NULL)
+        free(data);
+    {{#explicit_close}}
       lua_close(L);
-    ]] or "", [[
+    {{/explicit_close}}
       return rc;
     }
-  ]]}))
-  opts.cc = opts.cc or "cc"
+  ]], {
+    bytecode_b64 = str.quote(bytecode_b64),
+    c_modules = c_modules,
+    env_vars = env_vars,
+    auto_close = opts.close == nil,
+    explicit_close = opts.close == true
+  })
+
+  fs.writefile(outcfp, c_code)
+  opts.cc = opts.cc or env.var("CC", "cc")
   local args = {}
-  push(args, opts.cc, outcfp)
-  extend(args, opts.flags)
-  for fp in vals(modules.c) do
-    push(args, fp)
+  arr.push(args, opts.cc, outcfp)
+  arr.extend(args, opts.flags)
+  for fp in iter.vals(modules.c) do
+    arr.push(args, fp)
   end
-  push(args, "-o", outmainfp)
-  print(concat(args, " "))
-  execute(args)
+  arr.push(args, "-o", outmainfp)
+  print(arr.concat(args, " "))
+  sys.execute(args)
 end
 
 return bundle
