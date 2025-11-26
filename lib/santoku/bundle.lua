@@ -277,8 +277,9 @@ local function bundle (infile, outdir, opts)
     int {{{symbol}}}(lua_State *L);
     {{/c_modules}}
 
-    {{#auto_close}}
     lua_State *L = NULL;
+
+    {{#auto_close}}
     void __tk_bundle_atexit (void) {
       if (L != NULL)
         lua_close(L);
