@@ -122,6 +122,20 @@ local function write_deps (modules, infile, outfile)
   fs.writefile(depsfile, arr.concat(out))
 end
 
+local function to_c_array (data)
+  local ret = {}
+  for i = 1, #data do
+    if i > 1 then
+      arr.push(ret, ",")
+    end
+    if (i - 1) % 16 == 0 then
+      arr.push(ret, "\n  ")
+    end
+    arr.push(ret, string.format("0x%02x", string.byte(data, i)))
+  end
+  return arr.concat(ret)
+end
+
 local function bundle (infile, outdir, opts)
 
   err.assert(validate.isstring(infile))
@@ -164,7 +178,6 @@ local function bundle (infile, outdir, opts)
   end
 
   local bytecode = fs.readfile(outluacfp)
-  local bytecode_b64 = str.to_base64(bytecode)
 
   local outcfp = fs.join(outdir, opts.outprefix .. ".c")
   local outmainfp = fs.join(outdir, opts.outprefix)
@@ -184,14 +197,22 @@ local function bundle (infile, outdir, opts)
     arr.push(env_vars, { name = str.quote(e[1]), value = str.quote(e[2]) })
   end
 
+  local bytecode_data, bytecode_len
+  if opts.binary then
+    bytecode_data = to_c_array(bytecode)
+    bytecode_len = #bytecode
+  else
+    bytecode_data = str.quote(str.to_base64(bytecode))
+  end
+
   local c_code = mch([[
     #include "lua.h"
     #include "lualib.h"
     #include "lauxlib.h"
     #include "stdlib.h"
+    {{^binary}}
     #include "string.h"
 
-    /* Base64 decoder */
     static unsigned char base64_decode_char(char c) {
       if (c >= 'A' && c <= 'Z') return c - 'A';
       if (c >= 'a' && c <= 'z') return c - 'a' + 26;
@@ -204,16 +225,13 @@ local function bundle (infile, outdir, opts)
     static size_t base64_decode(const char *input, size_t input_len, unsigned char **output) {
       size_t output_len = (input_len * 3) / 4;
       size_t padding = 0;
-
       if (input_len >= 2) {
         if (input[input_len - 1] == '=') padding++;
         if (input[input_len - 2] == '=') padding++;
       }
       output_len -= padding;
-
       *output = malloc(output_len);
       if (!*output) return 0;
-
       size_t j = 0;
       unsigned char buf[4];
       for (size_t i = 0; i < input_len; i += 4) {
@@ -221,19 +239,22 @@ local function bundle (infile, outdir, opts)
         buf[1] = base64_decode_char(input[i + 1]);
         buf[2] = input[i + 2] == '=' ? 0 : base64_decode_char(input[i + 2]);
         buf[3] = input[i + 3] == '=' ? 0 : base64_decode_char(input[i + 3]);
-
         (*output)[j++] = (buf[0] << 2) | (buf[1] >> 4);
         if (j < output_len) (*output)[j++] = (buf[1] << 4) | (buf[2] >> 2);
         if (j < output_len) (*output)[j++] = (buf[2] << 6) | buf[3];
       }
-
       return output_len;
     }
 
-    /* Embedded base64-encoded bytecode */
-    static const char *data_base64 = {{{bytecode_b64}}};
+    static const char *data_base64 = {{{bytecode_data}}};
+    {{/binary}}
+    {{#binary}}
 
-    /* Source: https://github.com/lunarmodules/lua-compat-5.3 */
+    static const unsigned char data[] = { {{{bytecode_data}}}
+    };
+    static const size_t data_len = {{{bytecode_len}}};
+    {{/binary}}
+
     #define lua_getfield(L, i, k) (lua_getfield((L), (i), (k)), lua_type((L), -1))
     int __lua_absindex (lua_State *L, int i) {
       if (i < 0 && i > LUA_REGISTRYINDEX)
@@ -292,27 +313,33 @@ local function bundle (infile, outdir, opts)
     {{/env_vars}}
       L = luaL_newstate();
       int rc = 0;
-      unsigned char *data = NULL;
+    {{^binary}}
+      unsigned char *decoded_data = NULL;
       size_t data_len = 0;
+    {{/binary}}
     {{#auto_close}}
       if (0 != (rc = atexit(__tk_bundle_atexit)))
         goto err;
     {{/auto_close}}
       if (L == NULL)
         return 1;
-
-      /* Decode base64 bytecode */
-      data_len = base64_decode(data_base64, strlen(data_base64), &data);
-      if (data_len == 0 || data == NULL) {
+    {{^binary}}
+      data_len = base64_decode(data_base64, strlen(data_base64), &decoded_data);
+      if (data_len == 0 || decoded_data == NULL) {
         fprintf(stderr, "Failed to decode bytecode\n");
         return 1;
       }
-
+    {{/binary}}
       luaL_openlibs(L);
     {{#c_modules}}
       __luaL_requiref(L, "{{{module}}}", {{{symbol}}}, 0);
     {{/c_modules}}
+    {{#binary}}
       if (0 != (rc = luaL_loadbuffer(L, (const char *)data, data_len, "bundle")))
+    {{/binary}}
+    {{^binary}}
+      if (0 != (rc = luaL_loadbuffer(L, (const char *)decoded_data, data_len, "bundle")))
+    {{/binary}}
         goto err;
       lua_createtable(L, argc, 0);
       for (int i = 0; i < argc; i ++) {
@@ -328,15 +355,19 @@ local function bundle (infile, outdir, opts)
       rc = 1;
       fprintf(stderr, "%s\n", lua_tostring(L, -1));
     end:
-      if (data != NULL)
-        free(data);
+    {{^binary}}
+      if (decoded_data != NULL)
+        free(decoded_data);
+    {{/binary}}
     {{#explicit_close}}
       lua_close(L);
     {{/explicit_close}}
       return rc;
     }
-  ]], {
-    bytecode_b64 = str.quote(bytecode_b64),
+  ]])({
+    bytecode_data = bytecode_data,
+    bytecode_len = bytecode_len,
+    binary = opts.binary,
     c_modules = c_modules,
     env_vars = env_vars,
     auto_close = opts.close == nil,
