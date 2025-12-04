@@ -136,6 +136,230 @@ local function to_c_array (data)
   return arr.concat(ret)
 end
 
+-- C code template for files mode (embeds Lua files directly for better error reporting)
+local files_c_template = [[
+#include "lua.h"
+#include "lualib.h"
+#include "lauxlib.h"
+#include "stdlib.h"
+
+#define lua_getfield(L, i, k) (lua_getfield((L), (i), (k)), lua_type((L), -1))
+int __lua_absindex (lua_State *L, int i) {
+  if (i < 0 && i > LUA_REGISTRYINDEX)
+    i += lua_gettop(L) + 1;
+  return i;
+}
+int __luaL_getsubtable (lua_State *L, int i, const char *name) {
+  int abs_i = __lua_absindex(L, i);
+  luaL_checkstack(L, 3, "not enough stack slots");
+  lua_pushstring(L, name);
+  lua_gettable(L, abs_i);
+  if (lua_istable(L, -1))
+    return 1;
+  lua_pop(L, 1);
+  lua_newtable(L);
+  lua_pushstring(L, name);
+  lua_pushvalue(L, -2);
+  lua_settable(L, abs_i);
+  return 0;
+}
+void __luaL_requiref (lua_State *L, const char *modname,
+                                 lua_CFunction openf, int glb) {
+  luaL_checkstack(L, 3, "not enough stack slots available");
+  __luaL_getsubtable(L, LUA_REGISTRYINDEX, "_LOADED");
+  if (lua_getfield(L, -1, modname) == LUA_TNIL) {
+    lua_pop(L, 1);
+    lua_pushcfunction(L, openf);
+    lua_pushstring(L, modname);
+    lua_call(L, 1, 1);
+    lua_pushvalue(L, -1);
+    lua_setfield(L, -3, modname);
+  }
+  if (glb) {
+    lua_pushvalue(L, -1);
+    lua_setglobal(L, modname);
+  }
+  lua_replace(L, -2);
+}
+
+{{#c_modules}}
+int {{{symbol}}}(lua_State *L);
+{{/c_modules}}
+
+lua_State *L = NULL;
+
+{{#auto_close}}
+void __tk_bundle_atexit (void) {
+  if (L != NULL)
+    lua_close(L);
+}
+{{/auto_close}}
+
+int main (int argc, char **argv) {
+{{#env_vars}}
+  setenv({{{name}}}, {{{value}}}, 1);
+{{/env_vars}}
+  L = luaL_newstate();
+  int rc = 0;
+{{#auto_close}}
+  if (0 != (rc = atexit(__tk_bundle_atexit)))
+    goto err;
+{{/auto_close}}
+  if (L == NULL)
+    return 1;
+  luaL_openlibs(L);
+
+  // Set up package.path for embedded filesystem
+  lua_getglobal(L, "package");
+  lua_pushstring(L, {{{lua_path}}});
+  lua_setfield(L, -2, "path");
+  lua_pushstring(L, {{{lua_cpath}}});
+  lua_setfield(L, -2, "cpath");
+  lua_pop(L, 1);
+
+{{#c_modules}}
+  __luaL_requiref(L, "{{{module}}}", {{{symbol}}}, 0);
+{{/c_modules}}
+
+  // Set up arg table
+  lua_createtable(L, argc, 0);
+  for (int i = 0; i < argc; i ++) {
+    lua_pushstring(L, argv[i]);
+    lua_rawseti(L, -2, i);
+  }
+  lua_setglobal(L, "arg");
+
+  // Run entry file
+  if (0 != (rc = luaL_dofile(L, {{{entry_path}}})))
+    goto err;
+  goto end;
+err:
+  rc = 1;
+  fprintf(stderr, "%s\n", lua_tostring(L, -1));
+end:
+{{#explicit_close}}
+  lua_close(L);
+{{/explicit_close}}
+  return rc;
+}
+]]
+
+-- Build bundle using embedded files (for better error messages)
+local function bundle_files (infile, outdir, opts, modules)
+  local outcfp = fs.join(outdir, opts.outprefix .. ".c")
+  local outmainfp = fs.join(outdir, opts.outprefix)
+
+  if opts.deps then
+    write_deps(modules, infile, opts.depstarget or outmainfp)
+  end
+
+  -- Collect C modules
+  local c_modules = {}
+  for mod in iter.pairs(modules.c) do
+    local sym = "luaopen_" .. str.gsub(mod, "%.", "_")
+    arr.push(c_modules, { symbol = sym, module = mod })
+  end
+
+  -- Collect env vars
+  local env_vars = {}
+  for e in iter.ivals(opts.env) do
+    arr.push(env_vars, { name = str.quote(e[1]), value = str.quote(e[2]) })
+  end
+
+  -- Find common prefix for all Lua files to create clean VFS paths
+  local all_files = {}
+  for _, fp in iter.pairs(modules.lua) do
+    arr.push(all_files, fs.absolute(fp))
+  end
+  arr.push(all_files, fs.absolute(infile))
+
+  -- Find longest common directory prefix
+  local function common_prefix(paths)
+    if #paths == 0 then return "/" end
+    local first = paths[1]
+    local prefix_len = #first
+    for i = 2, #paths do
+      local p = paths[i]
+      local j = 1
+      while j <= prefix_len and j <= #p and first:sub(j, j) == p:sub(j, j) do
+        j = j + 1
+      end
+      prefix_len = j - 1
+    end
+    -- Truncate to last directory separator
+    local prefix = first:sub(1, prefix_len)
+    local last_sep = prefix:match(".*/()")
+    if last_sep then
+      return prefix:sub(1, last_sep - 1)
+    end
+    return "/"
+  end
+
+  local prefix = common_prefix(all_files)
+  if prefix == "" then prefix = "/" end
+
+  -- Build embed flags and VFS path mapping
+  local embed_flags = {}
+  local vfs_lua_files = {}
+
+  for mod, fp in iter.pairs(modules.lua) do
+    local abs_fp = fs.absolute(fp)
+    local vfs_path = "/" .. abs_fp:sub(#prefix + 2)  -- +2 for the trailing slash
+    arr.push(embed_flags, "--embed-file")
+    arr.push(embed_flags, abs_fp .. "@" .. vfs_path)
+    vfs_lua_files[mod] = vfs_path
+  end
+
+  -- Embed entry file
+  local abs_infile = fs.absolute(infile)
+  local entry_vfs_path = "/" .. abs_infile:sub(#prefix + 2)
+  arr.push(embed_flags, "--embed-file")
+  arr.push(embed_flags, abs_infile .. "@" .. entry_vfs_path)
+
+  -- Build package.path from the VFS paths
+  -- We need to convert module paths back to search patterns
+  local path_dirs = {}
+  for _, vfs_path in iter.pairs(vfs_lua_files) do
+    local dir = fs.dirname(vfs_path)
+    path_dirs[dir] = true
+  end
+
+  local lua_path_parts = {}
+  for dir in iter.pairs(path_dirs) do
+    arr.push(lua_path_parts, dir .. "/?.lua")
+    arr.push(lua_path_parts, dir .. "/?/init.lua")
+  end
+  local lua_path = arr.concat(lua_path_parts, ";")
+  local lua_cpath = ";;"  -- C modules are linked directly
+
+  -- Generate C code
+  local c_code = mch(files_c_template)({
+    c_modules = c_modules,
+    env_vars = env_vars,
+    auto_close = opts.close == nil,
+    explicit_close = opts.close == true,
+    lua_path = str.quote(lua_path),
+    lua_cpath = str.quote(lua_cpath),
+    entry_path = str.quote(entry_vfs_path),
+  })
+
+  fs.mkdirp(outdir)
+  fs.writefile(outcfp, c_code)
+
+  -- Build with emcc
+  opts.cc = opts.cc or env.var("CC", "cc")
+  local args = {}
+  arr.push(args, opts.cc, outcfp)
+  arr.extend(args, opts.flags)
+  arr.extend(args, embed_flags)
+  for fp in iter.vals(modules.c) do
+    arr.push(args, fp)
+  end
+  arr.push(args, "-o", outmainfp)
+  print(arr.concat(args, " "))
+  sys.execute(args)
+end
+
 local function bundle (infile, outdir, opts)
 
   err.assert(validate.isstring(infile))
@@ -156,6 +380,11 @@ local function bundle (infile, outdir, opts)
   opts.outprefix = opts.outprefix or fs.stripextensions(fs.basename(infile))
 
   local modules = parseinitialmodules(infile, opts.mods, opts.ignores, opts.path, opts.cpath)
+
+  -- Files mode: embed Lua files directly for better error reporting
+  if opts.files then
+    return bundle_files(infile, outdir, opts, modules)
+  end
 
   local outluafp = fs.join(outdir, opts.outprefix .. ".lua")
   local outluadata = mergelua(modules, infile, opts.mods)
