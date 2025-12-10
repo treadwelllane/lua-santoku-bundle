@@ -1,7 +1,6 @@
 local err = require("santoku.error")
 local lpeg = require("lpeg")
 local str = require("santoku.string")
-local iter = require("santoku.iter")
 local validate = require("santoku.validate")
 local arr = require("santoku.array")
 local sys = require("santoku.system")
@@ -94,8 +93,8 @@ end
 
 local function parseinitialmodules (infile, mods, ignores, path, cpath)
   local modules = { c = {}, lua = {} }
-  for mod in iter.ivals(mods) do
-    parsemodule(mod, modules, ignores, path, cpath)
+  for i = 1, #mods do
+    parsemodule(mods[i], modules, ignores, path, cpath)
   end
   parsemodules(infile, modules, ignores, path, cpath)
   return modules
@@ -103,12 +102,12 @@ end
 
 local function mergelua (modules, infile, mods)
   local ret = {}
-  for mod, fp in iter.pairs(modules.lua) do
+  for mod, fp in pairs(modules.lua) do
     local data = fs.readfile(fp)
     arr.push(ret, "package.preload[\"", mod, "\"] = function ()\n\n", data, "\nend\n")
   end
-  for mod in iter.ivals(mods) do
-    arr.push(ret, "require(\"", mod, "\")\n")
+  for i = 1, #mods do
+    arr.push(ret, "require(\"", mods[i], "\")\n")
   end
   arr.push(ret, "\n", fs.readfile(infile))
   return arr.concat(ret)
@@ -116,9 +115,10 @@ end
 
 local function write_deps (modules, infile, outfile)
   local depsfile = outfile .. ".d"
-  local out = { outfile, ": " }
-  arr.extend(out, iter.collect(iter.intersperse(" ", iter.flatten(iter.map(iter.vals, iter.vals(modules))))))
-  arr.push(out, "\n", depsfile, ": ", infile)
+  local all_fps = {}
+  for _, fp in pairs(modules.lua) do arr.push(all_fps, fp) end
+  for _, fp in pairs(modules.c) do arr.push(all_fps, fp) end
+  local out = { outfile, ": ", arr.spread(arr.interleave(all_fps, " ")), "\n", depsfile, ": ", infile }
   fs.writefile(depsfile, arr.concat(out))
 end
 
@@ -255,20 +255,21 @@ local function bundle_files (infile, outdir, opts, modules)
 
   -- Collect C modules
   local c_modules = {}
-  for mod in iter.pairs(modules.c) do
+  for mod in pairs(modules.c) do
     local sym = "luaopen_" .. str.gsub(mod, "%.", "_")
     arr.push(c_modules, { symbol = sym, module = mod })
   end
 
   -- Collect env vars
   local env_vars = {}
-  for e in iter.ivals(opts.env) do
+  for i = 1, #opts.env do
+    local e = opts.env[i]
     arr.push(env_vars, { name = str.quote(e[1]), value = str.quote(e[2]) })
   end
 
   -- Find common prefix for all Lua files to create clean VFS paths
   local all_files = {}
-  for _, fp in iter.pairs(modules.lua) do
+  for _, fp in pairs(modules.lua) do
     arr.push(all_files, fs.absolute(fp))
   end
   arr.push(all_files, fs.absolute(infile))
@@ -302,7 +303,7 @@ local function bundle_files (infile, outdir, opts, modules)
   local embed_flags = {}
   local vfs_lua_files = {}
 
-  for mod, fp in iter.pairs(modules.lua) do
+  for mod, fp in pairs(modules.lua) do
     local abs_fp = fs.absolute(fp)
     local vfs_path = "/" .. abs_fp:sub(#prefix + 2)  -- +2 for the trailing slash
     arr.push(embed_flags, "--embed-file")
@@ -319,13 +320,13 @@ local function bundle_files (infile, outdir, opts, modules)
   -- Build package.path from the VFS paths
   -- We need to convert module paths back to search patterns
   local path_dirs = {}
-  for _, vfs_path in iter.pairs(vfs_lua_files) do
+  for _, vfs_path in pairs(vfs_lua_files) do
     local dir = fs.dirname(vfs_path)
     path_dirs[dir] = true
   end
 
   local lua_path_parts = {}
-  for dir in iter.pairs(path_dirs) do
+  for dir in pairs(path_dirs) do
     arr.push(lua_path_parts, dir .. "/?.lua")
     arr.push(lua_path_parts, dir .. "/?/init.lua")
   end
@@ -350,9 +351,9 @@ local function bundle_files (infile, outdir, opts, modules)
   opts.cc = opts.cc or env.var("CC", "cc")
   local args = {}
   arr.push(args, opts.cc, outcfp)
-  arr.extend(args, opts.flags)
-  arr.extend(args, embed_flags)
-  for fp in iter.vals(modules.c) do
+  arr.push(args, arr.spread(opts.flags))
+  arr.push(args, arr.spread(embed_flags))
+  for _, fp in pairs(modules.c) do
     arr.push(args, fp)
   end
   arr.push(args, "-o", outmainfp)
@@ -371,8 +372,8 @@ local function bundle (infile, outdir, opts)
   opts.flags = opts.flags or {}
   opts.ignores = opts.ignores or {}
 
-  for k in iter.ivals(opts.ignores) do
-    opts.ignores[k] = true
+  for i = 1, #opts.ignores do
+    opts.ignores[opts.ignores[i]] = true
   end
 
   opts.path = opts.path or env.var("LUA_PATH", nil)
@@ -401,7 +402,7 @@ local function bundle (infile, outdir, opts)
     end
     outluacfp = fs.join(outdir, opts.outprefix .. ".luac")
     opts.luac = str.interp(opts.luac, { input = outluafp, output = outluacfp })
-    sys.execute(iter.collect(iter.map(string.sub, str.splits(opts.luac, "%s+"))))
+    sys.execute(str.splits(opts.luac, "%s+"))
   else
     outluacfp = outluafp
   end
@@ -416,13 +417,14 @@ local function bundle (infile, outdir, opts)
   end
 
   local c_modules = {}
-  for mod in iter.pairs(modules.c) do
+  for mod in pairs(modules.c) do
     local sym = "luaopen_" .. str.gsub(mod, "%.", "_")
     arr.push(c_modules, { symbol = sym, module = mod })
   end
 
   local env_vars = {}
-  for e in iter.ivals(opts.env) do
+  for i = 1, #opts.env do
+    local e = opts.env[i]
     arr.push(env_vars, { name = str.quote(e[1]), value = str.quote(e[2]) })
   end
 
@@ -607,8 +609,8 @@ local function bundle (infile, outdir, opts)
   opts.cc = opts.cc or env.var("CC", "cc")
   local args = {}
   arr.push(args, opts.cc, outcfp)
-  arr.extend(args, opts.flags)
-  for fp in iter.vals(modules.c) do
+  arr.push(args, arr.spread(opts.flags))
+  for _, fp in pairs(modules.c) do
     arr.push(args, fp)
   end
   arr.push(args, "-o", outmainfp)

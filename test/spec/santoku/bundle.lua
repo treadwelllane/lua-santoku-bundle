@@ -1,6 +1,6 @@
 local test = require("santoku.test")
 local bundle = require("santoku.bundle")
-local iter = require("santoku.iter")
+local arr = require("santoku.array")
 local sys = require("santoku.system")
 local str = require("santoku.string")
 local fs = require("santoku.fs")
@@ -12,13 +12,13 @@ test("bundle", function ()
 
   fs.mkdirp(outdir, true)
 
-  iter.each(function (fp)
+  arr.pulleach(fs.files(outdir), function (fp)
     return fs.rm(fp)
-  end, fs.files(outdir))
+  end)
 
-  local incdir = iter.first(sys.sh({ "luarocks", "config", "variables.LUA_INCDIR" }))
-  local libdir = iter.first(sys.sh({ "luarocks", "config", "variables.LUA_LIBDIR" }))
-  local libfile = iter.first(sys.sh({ "luarocks", "config", "variables.LUA_LIBDIR_FILE" }))
+  local incdir = sys.sh({ "luarocks", "config", "variables.LUA_INCDIR" })()
+  local libdir = sys.sh({ "luarocks", "config", "variables.LUA_LIBDIR" })()
+  local libfile = sys.sh({ "luarocks", "config", "variables.LUA_LIBDIR_FILE" })()
 
   local libname = str.stripprefix(fs.stripextension(libfile), "lib")
 
