@@ -118,7 +118,7 @@ local function write_deps (modules, infile, outfile)
   local all_fps = {}
   for _, fp in pairs(modules.lua) do arr.push(all_fps, fp) end
   for _, fp in pairs(modules.c) do arr.push(all_fps, fp) end
-  local out = { outfile, ": ", arr.spread(arr.interleave(all_fps, " ")), "\n", depsfile, ": ", infile }
+  local out = { outfile, ": ", arr.spread(arr.interleaved(all_fps, " ")), "\n", depsfile, ": ", infile }
   fs.writefile(depsfile, arr.concat(out))
 end
 
