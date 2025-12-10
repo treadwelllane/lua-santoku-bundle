@@ -12,9 +12,9 @@ test("bundle", function ()
 
   fs.mkdirp(outdir, true)
 
-  arr.pulleach(fs.files(outdir), function (fp)
+  arr.ieach(function (fp)
     return fs.rm(fp)
-  end)
+  end, fs.files(outdir))
 
   local incdir = sys.sh({ "luarocks", "config", "variables.LUA_INCDIR" })()
   local libdir = sys.sh({ "luarocks", "config", "variables.LUA_LIBDIR" })()
