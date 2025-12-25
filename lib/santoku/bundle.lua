@@ -305,7 +305,7 @@ local function bundle_files (infile, outdir, opts, modules)
 
   for mod, fp in pairs(modules.lua) do
     local abs_fp = fs.absolute(fp)
-    local vfs_path = "/" .. abs_fp:sub(#prefix + 2)  -- +2 for the trailing slash
+    local vfs_path = "/" .. abs_fp:sub(#prefix + 1)
     arr.push(embed_flags, "--embed-file")
     arr.push(embed_flags, abs_fp .. "@" .. vfs_path)
     vfs_lua_files[mod] = vfs_path
@@ -313,7 +313,7 @@ local function bundle_files (infile, outdir, opts, modules)
 
   -- Embed entry file
   local abs_infile = fs.absolute(infile)
-  local entry_vfs_path = "/" .. abs_infile:sub(#prefix + 2)
+  local entry_vfs_path = "/" .. abs_infile:sub(#prefix + 1)
   arr.push(embed_flags, "--embed-file")
   arr.push(embed_flags, abs_infile .. "@" .. entry_vfs_path)
 
