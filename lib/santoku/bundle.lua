@@ -317,21 +317,9 @@ local function bundle_files (infile, outdir, opts, modules)
   arr.push(embed_flags, "--embed-file")
   arr.push(embed_flags, abs_infile .. "@" .. entry_vfs_path)
 
-  -- Build package.path from the VFS paths
-  -- We need to convert module paths back to search patterns
-  local path_dirs = {}
-  for _, vfs_path in pairs(vfs_lua_files) do
-    local dir = fs.dirname(vfs_path)
-    path_dirs[dir] = true
-  end
-
-  local lua_path_parts = {}
-  for dir in pairs(path_dirs) do
-    arr.push(lua_path_parts, dir .. "/?.lua")
-    arr.push(lua_path_parts, dir .. "/?/init.lua")
-  end
-  local lua_path = arr.concat(lua_path_parts, ";")
-  local lua_cpath = ";;"  -- C modules are linked directly
+  -- Standard VFS paths for lua_modules structure
+  local lua_path = "/lua_modules/share/lua/5.1/?.lua;/lua_modules/share/lua/5.1/?/init.lua;/lua_modules/lib/lua/5.1/?.lua;/lua_modules/lib/lua/5.1/?/init.lua;;"
+  local lua_cpath = "/lua_modules/lib/lua/5.1/?.so;;"
 
   -- Generate C code
   local c_code = mch(files_c_template)({
