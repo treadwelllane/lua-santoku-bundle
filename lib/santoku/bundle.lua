@@ -299,16 +299,14 @@ local function bundle_files (infile, outdir, opts, modules)
   local prefix = common_prefix(all_files)
   if prefix == "" then prefix = "/" end
 
-  -- Build embed flags and VFS path mapping
+  -- Build embed flags
   local embed_flags = {}
-  local vfs_lua_files = {}
 
-  for mod, fp in pairs(modules.lua) do
+  for _, fp in pairs(modules.lua) do
     local abs_fp = fs.absolute(fp)
     local vfs_path = "/" .. abs_fp:sub(#prefix + 1)
     arr.push(embed_flags, "--embed-file")
     arr.push(embed_flags, abs_fp .. "@" .. vfs_path)
-    vfs_lua_files[mod] = vfs_path
   end
 
   -- Embed entry file
