@@ -169,6 +169,8 @@ void __luaL_requiref (lua_State *L, const char *modname,
   __luaL_getsubtable(L, LUA_REGISTRYINDEX, "_LOADED");
   if (lua_getfield(L, -1, modname) == LUA_TNIL) {
     lua_pop(L, 1);
+    lua_pushboolean(L, 1);
+    lua_setfield(L, -2, modname);
     lua_pushcfunction(L, openf);
     lua_pushstring(L, modname);
     lua_call(L, 1, 1);
@@ -427,6 +429,7 @@ local function bundle (infile, outdir, opts)
     #include "lualib.h"
     #include "lauxlib.h"
     #include "stdlib.h"
+    #include "stdio.h"
     {{^binary}}
     #include "string.h"
 
@@ -498,6 +501,8 @@ local function bundle (infile, outdir, opts)
       __luaL_getsubtable(L, LUA_REGISTRYINDEX, "_LOADED");
       if (lua_getfield(L, -1, modname) == LUA_TNIL) {
         lua_pop(L, 1);
+        lua_pushboolean(L, 1);
+        lua_setfield(L, -2, modname);
         lua_pushcfunction(L, openf);
         lua_pushstring(L, modname);
         lua_call(L, 1, 1);
