@@ -1,11 +1,11 @@
 local env = {
   name = "santoku-bundle",
-  version = "0.0.43-1",
+  version = "0.0.44-1",
   variable_prefix = "TK_BUNDLE",
   license = "MIT",
   public = true,
   dependencies = {
-    "lua >= 5.1",
+    "lua == 5.1",
     "lpeg >= 1.0.0",
     "santoku >= 0.0.314-1",
     "santoku-system >= 0.0.61-1",
@@ -14,7 +14,7 @@ local env = {
   },
 }
 
-env.homepage = "https://github.com/treadwelllane/lua-" .. env.name
+env.homepage = "https://github.com/birchpointswe/lua-" .. env.name
 env.tarball = env.name .. "-" .. env.version .. ".tar.gz"
 env.download = env.homepage .. "/releases/download/" .. env.version .. "/" .. env.tarball
 
