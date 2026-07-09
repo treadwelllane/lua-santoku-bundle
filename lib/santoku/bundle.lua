@@ -143,45 +143,12 @@ local files_c_template = [[
 #include "lauxlib.h"
 #include "stdlib.h"
 
-#define lua_getfield(L, i, k) (lua_getfield((L), (i), (k)), lua_type((L), -1))
-int __lua_absindex (lua_State *L, int i) {
-  if (i < 0 && i > LUA_REGISTRYINDEX)
-    i += lua_gettop(L) + 1;
-  return i;
-}
-int __luaL_getsubtable (lua_State *L, int i, const char *name) {
-  int abs_i = __lua_absindex(L, i);
-  luaL_checkstack(L, 3, "not enough stack slots");
-  lua_pushstring(L, name);
-  lua_gettable(L, abs_i);
-  if (lua_istable(L, -1))
-    return 1;
-  lua_pop(L, 1);
-  lua_newtable(L);
-  lua_pushstring(L, name);
-  lua_pushvalue(L, -2);
-  lua_settable(L, abs_i);
-  return 0;
-}
-void __luaL_requiref (lua_State *L, const char *modname,
-                                 lua_CFunction openf, int glb) {
-  luaL_checkstack(L, 3, "not enough stack slots available");
-  __luaL_getsubtable(L, LUA_REGISTRYINDEX, "_LOADED");
-  if (lua_getfield(L, -1, modname) == LUA_TNIL) {
-    lua_pop(L, 1);
-    lua_pushboolean(L, 1);
-    lua_setfield(L, -2, modname);
-    lua_pushcfunction(L, openf);
-    lua_pushstring(L, modname);
-    lua_call(L, 1, 1);
-    lua_pushvalue(L, -1);
-    lua_setfield(L, -3, modname);
-  }
-  if (glb) {
-    lua_pushvalue(L, -1);
-    lua_setglobal(L, modname);
-  }
-  lua_replace(L, -2);
+static void __tk_preload (lua_State *L, const char *modname, lua_CFunction openf) {
+  lua_getglobal(L, "package");
+  lua_getfield(L, -1, "preload");
+  lua_pushcfunction(L, openf);
+  lua_setfield(L, -2, modname);
+  lua_pop(L, 2);
 }
 
 {{#c_modules}}
@@ -220,7 +187,7 @@ int main (int argc, char **argv) {
   lua_pop(L, 1);
 
 {{#c_modules}}
-  __luaL_requiref(L, "{{{module}}}", {{{symbol}}}, 0);
+  __tk_preload(L, "{{{module}}}", {{{symbol}}});
 {{/c_modules}}
 
   // Set up arg table
@@ -475,45 +442,12 @@ local function bundle (infile, outdir, opts)
     static const size_t data_len = {{{bytecode_len}}};
     {{/binary}}
 
-    #define lua_getfield(L, i, k) (lua_getfield((L), (i), (k)), lua_type((L), -1))
-    int __lua_absindex (lua_State *L, int i) {
-      if (i < 0 && i > LUA_REGISTRYINDEX)
-        i += lua_gettop(L) + 1;
-      return i;
-    }
-    int __luaL_getsubtable (lua_State *L, int i, const char *name) {
-      int abs_i = __lua_absindex(L, i);
-      luaL_checkstack(L, 3, "not enough stack slots");
-      lua_pushstring(L, name);
-      lua_gettable(L, abs_i);
-      if (lua_istable(L, -1))
-        return 1;
-      lua_pop(L, 1);
-      lua_newtable(L);
-      lua_pushstring(L, name);
-      lua_pushvalue(L, -2);
-      lua_settable(L, abs_i);
-      return 0;
-    }
-    void __luaL_requiref (lua_State *L, const char *modname,
-                                     lua_CFunction openf, int glb) {
-      luaL_checkstack(L, 3, "not enough stack slots available");
-      __luaL_getsubtable(L, LUA_REGISTRYINDEX, "_LOADED");
-      if (lua_getfield(L, -1, modname) == LUA_TNIL) {
-        lua_pop(L, 1);
-        lua_pushboolean(L, 1);
-        lua_setfield(L, -2, modname);
-        lua_pushcfunction(L, openf);
-        lua_pushstring(L, modname);
-        lua_call(L, 1, 1);
-        lua_pushvalue(L, -1);
-        lua_setfield(L, -3, modname);
-      }
-      if (glb) {
-        lua_pushvalue(L, -1);
-        lua_setglobal(L, modname);
-      }
-      lua_replace(L, -2);
+    static void __tk_preload (lua_State *L, const char *modname, lua_CFunction openf) {
+      lua_getglobal(L, "package");
+      lua_getfield(L, -1, "preload");
+      lua_pushcfunction(L, openf);
+      lua_setfield(L, -2, modname);
+      lua_pop(L, 2);
     }
 
     {{#c_modules}}
@@ -554,7 +488,7 @@ local function bundle (infile, outdir, opts)
     {{/binary}}
       luaL_openlibs(L);
     {{#c_modules}}
-      __luaL_requiref(L, "{{{module}}}", {{{symbol}}}, 0);
+      __tk_preload(L, "{{{module}}}", {{{symbol}}});
     {{/c_modules}}
     {{#binary}}
       if (0 != (rc = luaL_loadbuffer(L, (const char *)data, data_len, "bundle")))
