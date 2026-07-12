@@ -1,5 +1,5 @@
 local err = require("santoku.error")
-local lpeg = require("lpeg")
+local lpeg = require("santoku.re.core")
 local str = require("santoku.string")
 local validate = require("santoku.validate")
 local arr = require("santoku.array")
