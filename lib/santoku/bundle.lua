@@ -306,7 +306,6 @@ local function bundle_files (infile, outdir, opts, modules)
   opts.cc = opts.cc or env.var("CC", "cc")
   local args = {}
   arr.push(args, opts.cc, outcfp)
-  arr.push(args, "-fPIC")
   arr.push(args, arr.spread(opts.flags))
   arr.push(args, arr.spread(embed_flags))
   for _, fp in pairs(modules.c) do
@@ -535,7 +534,6 @@ local function bundle (infile, outdir, opts)
   opts.cc = opts.cc or env.var("CC", "cc")
   local args = {}
   arr.push(args, opts.cc, outcfp)
-  arr.push(args, "-fPIC")
   arr.push(args, arr.spread(opts.flags))
   for _, fp in pairs(modules.c) do
     arr.push(args, fp)
