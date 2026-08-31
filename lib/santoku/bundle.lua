@@ -104,9 +104,23 @@ local function stripshebang (data)
   return (str.gsub(data, "^#[^\n]*", ""))
 end
 
-local function push_c_modules (args, modules, static)
+local function is_native_elf (fp)
+  local f = io.open(fp, "rb")
+  if not f then
+    return false
+  end
+  local magic = f:read(4)
+  f:close()
+  return magic == "\127ELF"
+end
+
+local function push_c_modules (args, modules, static, wasm)
   local dynamic = {}
   for _, fp in pairs(modules.c) do
+    if wasm and is_native_elf(fp) then
+      err.error("cannot link a native C extension into a wasm bundle; " ..
+        "the project and its dependencies must be built with emcc", fp)
+    end
     local linkfp = (str.match(fp, "^(.*)%.[^%.]+$") or fp) .. ".link"
     if static and fs.exists(linkfp) then
       local dir = fs.dirname(linkfp)
@@ -326,7 +340,7 @@ local function bundle_files (infile, outdir, opts, modules)
   arr.push(args, opts.cc, outcfp)
   arr.push(args, arr.spread(opts.flags))
   arr.push(args, arr.spread(embed_flags))
-  push_c_modules(args, modules, opts.static ~= false)
+  push_c_modules(args, modules, opts.static ~= false, opts.wasm)
   arr.push(args, "-o", outmainfp)
   print(arr.concat(args, " "))
   sys.execute(args)
@@ -549,7 +563,7 @@ local function bundle (infile, outdir, opts)
   local args = {}
   arr.push(args, opts.cc, outcfp)
   arr.push(args, arr.spread(opts.flags))
-  push_c_modules(args, modules, opts.static ~= false)
+  push_c_modules(args, modules, opts.static ~= false, opts.wasm)
   arr.push(args, "-o", outmainfp)
   print(arr.concat(args, " "))
   sys.execute(args)
