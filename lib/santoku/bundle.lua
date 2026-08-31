@@ -100,16 +100,45 @@ local function parseinitialmodules (infile, mods, ignores, path, cpath)
   return modules
 end
 
+local function stripshebang (data)
+  return (str.gsub(data, "^#[^\n]*", ""))
+end
+
+local function push_c_modules (args, modules, static)
+  local dynamic = {}
+  for _, fp in pairs(modules.c) do
+    local linkfp = (str.match(fp, "^(.*)%.[^%.]+$") or fp) .. ".link"
+    if static and fs.exists(linkfp) then
+      local dir = fs.dirname(linkfp)
+      local lines = str.splits(fs.readfile(linkfp), "\n")
+      for i = 1, #lines do
+        local tok = str.match(lines[i], "^%s*(.-)%s*$")
+        if tok ~= "" then
+          arr.push(args, str.match(tok, "^%-") and tok or fs.join(dir, tok))
+        end
+      end
+    else
+      if static then
+        arr.push(dynamic, fp)
+      end
+      arr.push(args, fp)
+    end
+  end
+  if #dynamic > 0 then
+    print("warning: no static link info, linking dynamically: " .. arr.concat(dynamic, " "))
+  end
+end
+
 local function mergelua (modules, infile, mods)
   local ret = {}
   for mod, fp in pairs(modules.lua) do
-    local data = fs.readfile(fp)
+    local data = stripshebang(fs.readfile(fp))
     arr.push(ret, "package.preload[\"", mod, "\"] = function ()\n\n", data, "\nend\n")
   end
   for i = 1, #mods do
     arr.push(ret, "require(\"", mods[i], "\")\n")
   end
-  arr.push(ret, "\n", fs.readfile(infile))
+  arr.push(ret, "\n", stripshebang(fs.readfile(infile)))
   return arr.concat(ret)
 end
 
@@ -135,7 +164,6 @@ local function to_c_array (data)
   end
   return arr.concat(ret)
 end
-
 
 local files_c_template = [[
 #include "lua.h"
@@ -213,7 +241,6 @@ end:
 }
 ]]
 
-
 local function bundle_files (infile, outdir, opts, modules)
   local outcfp = fs.join(outdir, opts.outprefix .. ".c")
   local outmainfp = fs.join(outdir, opts.outprefix)
@@ -222,13 +249,11 @@ local function bundle_files (infile, outdir, opts, modules)
     write_deps(modules, infile, opts.depstarget or outmainfp)
   end
 
-
   local c_modules = {}
   for mod in pairs(modules.c) do
     local sym = "luaopen_" .. str.gsub(mod, "%.", "_")
     arr.push(c_modules, { symbol = sym, module = mod })
   end
-
 
   local env_vars = {}
   for i = 1, #opts.env do
@@ -236,13 +261,11 @@ local function bundle_files (infile, outdir, opts, modules)
     arr.push(env_vars, { name = str.quote(e[1]), value = str.quote(e[2]) })
   end
 
-
   local all_files = {}
   for _, fp in pairs(modules.lua) do
     arr.push(all_files, fs.absolute(fp))
   end
   arr.push(all_files, fs.absolute(infile))
-
 
   local function common_prefix(paths)
     if #paths == 0 then return "/" end
@@ -268,7 +291,6 @@ local function bundle_files (infile, outdir, opts, modules)
   local prefix = common_prefix(all_files)
   if prefix == "" then prefix = "/" end
 
-
   local embed_flags = {}
 
   for _, fp in pairs(modules.lua) do
@@ -278,16 +300,13 @@ local function bundle_files (infile, outdir, opts, modules)
     arr.push(embed_flags, abs_fp .. "@" .. vfs_path)
   end
 
-
   local abs_infile = fs.absolute(infile)
   local entry_vfs_path = "/" .. abs_infile:sub(#prefix + 1)
   arr.push(embed_flags, "--embed-file")
   arr.push(embed_flags, abs_infile .. "@" .. entry_vfs_path)
 
-
   local lua_path = "/lua_modules/share/lua/5.1/?.lua;/lua_modules/share/lua/5.1/?/init.lua;/lua_modules/lib/lua/5.1/?.lua;/lua_modules/lib/lua/5.1/?/init.lua;;"
   local lua_cpath = "/lua_modules/lib/lua/5.1/?.so;;"
-
 
   local c_code = mch(files_c_template)({
     c_modules = c_modules,
@@ -302,15 +321,12 @@ local function bundle_files (infile, outdir, opts, modules)
   fs.mkdirp(outdir)
   fs.writefile(outcfp, c_code)
 
-
   opts.cc = opts.cc or env.var("CC", "cc")
   local args = {}
   arr.push(args, opts.cc, outcfp)
   arr.push(args, arr.spread(opts.flags))
   arr.push(args, arr.spread(embed_flags))
-  for _, fp in pairs(modules.c) do
-    arr.push(args, fp)
-  end
+  push_c_modules(args, modules, opts.static ~= false)
   arr.push(args, "-o", outmainfp)
   print(arr.concat(args, " "))
   sys.execute(args)
@@ -336,7 +352,6 @@ local function bundle (infile, outdir, opts)
   opts.outprefix = opts.outprefix or fs.stripextensions(fs.basename(infile))
 
   local modules = parseinitialmodules(infile, opts.mods, opts.ignores, opts.path, opts.cpath)
-
 
   if opts.files then
     return bundle_files(infile, outdir, opts, modules)
@@ -500,8 +515,7 @@ local function bundle (infile, outdir, opts)
       lua_createtable(L, argc, 0);
       for (int i = 0; i < argc; i ++) {
         lua_pushstring(L, argv[i]);
-        lua_pushinteger(L, argc + 1);
-        lua_settable(L, -3);
+        lua_rawseti(L, -2, i);
       }
       lua_setglobal(L, "arg");
       if (0 != (rc = lua_pcall(L, 0, 0, 0)))
@@ -535,9 +549,7 @@ local function bundle (infile, outdir, opts)
   local args = {}
   arr.push(args, opts.cc, outcfp)
   arr.push(args, arr.spread(opts.flags))
-  for _, fp in pairs(modules.c) do
-    arr.push(args, fp)
-  end
+  push_c_modules(args, modules, opts.static ~= false)
   arr.push(args, "-o", outmainfp)
   print(arr.concat(args, " "))
   sys.execute(args)
