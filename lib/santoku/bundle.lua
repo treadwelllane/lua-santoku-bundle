@@ -128,7 +128,8 @@ local function push_c_modules (args, modules, static, wasm)
       for i = 1, #lines do
         local tok = str.match(lines[i], "^%s*(.-)%s*$")
         if tok ~= "" then
-          arr.push(args, str.match(tok, "^%-") and tok or fs.join(dir, tok))
+          arr.push(args, (str.match(tok, "^%-") or str.match(tok, "^/"))
+            and tok or fs.join(dir, tok))
         end
       end
     else
@@ -141,6 +142,24 @@ local function push_c_modules (args, modules, static, wasm)
   if #dynamic > 0 then
     print("warning: no static link info, linking dynamically: " .. arr.concat(dynamic, " "))
   end
+end
+
+local function find_luac51 ()
+  for _, name in ipairs({ "luac5.1", "luac" }) do
+    local ok, ver = pcall(function ()
+      local first
+      for line in sys.sh({ name, "-v" }) do
+        first = first or line
+      end
+      return first
+    end)
+    if ok and ver and str.find(ver, "5.1", 1, true) then
+      return name
+    end
+  end
+  return err.error("no Lua 5.1 luac found on PATH; bundling with a mismatched " ..
+    "luac produces a binary that fails at runtime with 'bad header in " ..
+    "precompiled chunk'. Pass --luac explicitly or use --luac-off")
 end
 
 local function mergelua (modules, infile, mods)
@@ -382,7 +401,7 @@ local function bundle (infile, outdir, opts)
 
   if opts.luac then
     if opts.luac == true then
-      opts.luac = "luac -s -o %output %input"
+      opts.luac = find_luac51() .. " -s -o %output %input"
     end
     outluacfp = fs.join(outdir, opts.outprefix .. ".luac")
     opts.luac = str.interp(opts.luac, { input = outluafp, output = outluacfp })
