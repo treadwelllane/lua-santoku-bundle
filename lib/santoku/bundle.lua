@@ -105,12 +105,13 @@ local function stripshebang (data)
 end
 
 local function is_native_elf (fp)
-  local f = io.open(fp, "rb")
-  if not f then
+  if not fs.exists(fp) then
     return false
   end
-  local magic = f:read(4)
-  f:close()
+  local magic
+  fs.with(fp, "rb", function (f)
+    magic = f:read(4)
+  end)
   return magic == "\127ELF"
 end
 
@@ -193,7 +194,7 @@ local function to_c_array (data)
     if (i - 1) % 16 == 0 then
       arr.push(ret, "\n  ")
     end
-    arr.push(ret, string.format("0x%02x", string.byte(data, i)))
+    arr.push(ret, str.format("0x%02x", str.byte(data, i)))
   end
   return arr.concat(ret)
 end
